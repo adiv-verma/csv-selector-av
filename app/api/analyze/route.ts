@@ -2,16 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import pdf from 'pdf-parse';
 
-// --- CHANGE STARTS HERE ---
-const bedrock = new BedrockRuntimeClient({ 
-  region: "us-east-1", 
-  credentials: {
-    // We use the "!" to tell TypeScript we are sure these variables exist
-    accessKeyId: process.env.AMPLIFY_BEDROCK_ID!, 
-    secretAccessKey: process.env.AMPLIFY_BEDROCK_SECRET!
-  }
-});
+// --- CREDENTIALS SETUP ---
+// We use the "!" to tell TypeScript we are sure these variables exist
+const accessKeyId = process.env.AMPLIFY_BEDROCK_ID;
+const secretAccessKey = process.env.AMPLIFY_BEDROCK_SECRET;
 
+const bedrock = new BedrockRuntimeClient({
+  region: "us-east-1",
+  credentials: accessKeyId && secretAccessKey ? { accessKeyId, secretAccessKey } : undefined
+});
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,44 +21,71 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
     }
 
-    // 2. Parse PDF
+    // Parse PDF
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     const data = await pdf(buffer);
     const pdfText = data.text;
 
-    // 3. Prepare Prompt for Bedrock (Claude 3 Haiku)
-    // We use the Haiku model ID which is faster and cheaper
+    // Use Claude 3 Haiku
     const modelId = "anthropic.claude-3-haiku-20240307-v1:0";
     
-    const prompt = `You are an expert CV reviewer and career coach. 
-    Analyze the following resume text and provide:
-    1. A summary of the candidate's strengths.
-    2. Specific improvements for their bullet points (using STAR method).
-    3. Missing keywords based on their apparent industry.
-    4. A score out of 10.
-    
-    RESUME TEXT:
-    ${pdfText}`;
+    // --- THE PROMPT THAT CREATES THE DESIGN DATA ---
+    const prompt = `You are a strict data extraction AI. Analyze this resume text and extract data into a valid JSON format only. Do not add any conversational text.
 
-    // Structure the payload for Claude 3
+    Resume Text:
+    ${pdfText}
+
+    Output Format (JSON):
+    {
+      "candidateName": "Extract full name",
+      "yearsOfExperience": "Extract total years (e.g., '10.5 Years')",
+      "matchScore": number (0-100 overall score),
+      "decision": "CONSIDER" or "REJECT",
+      "summary": "One sentence summary of strengths and weaknesses.",
+      "skills": [
+        {
+          "name": "Wireless Networks (5G, 4G, LTE)",
+          "weight": "4/5",
+          "evidence": "Extract specific evidence from CV or state 'No explicit experience found'",
+          "proficiency": number (0-100),
+          "score": number (0-100)
+        },
+        {
+          "name": "Fixed Networks (Fiber)",
+          "weight": "4/5",
+          "evidence": "Extract specific evidence...",
+          "proficiency": number (0-100),
+          "score": number (0-100)
+        },
+        {
+          "name": "OSS",
+          "weight": "4/5",
+          "evidence": "Extract specific evidence...",
+          "proficiency": number (0-100),
+          "score": number (0-100)
+        },
+        {
+          "name": "Service Assurance",
+          "weight": "4/5",
+          "evidence": "Extract specific evidence...",
+          "proficiency": number (0-100),
+          "score": number (0-100)
+        }
+      ]
+    }`;
+
     const payload = {
       anthropic_version: "bedrock-2023-05-31",
-      max_tokens: 2000,
+      max_tokens: 4000,
       messages: [
         {
           role: "user",
-          content: [
-            {
-              type: "text",
-              text: prompt
-            }
-          ]
+          content: [{ type: "text", text: prompt }]
         }
       ]
     };
 
-    // 4. Invoke Bedrock
     const command = new InvokeModelCommand({
       contentType: "application/json",
       body: JSON.stringify(payload),
@@ -67,18 +93,20 @@ export async function POST(req: NextRequest) {
     });
 
     const apiResponse = await bedrock.send(command);
-    
-    // 5. Decode Response
     const decodedResponseBody = new TextDecoder().decode(apiResponse.body);
     const responseBody = JSON.parse(decodedResponseBody);
-    const resultText = responseBody.content[0].text;
+    
+    // Parse the JSON string inside the text response
+    let resultText = responseBody.content[0].text;
+    
+    // Cleanup if the model adds markdown code blocks
+    resultText = resultText.replace(/```json/g, '').replace(/```/g, '');
+    const jsonAnalysis = JSON.parse(resultText);
 
-    return NextResponse.json({ analysis: resultText });
+    return NextResponse.json(jsonAnalysis);
 
   } catch (error: any) {
-    console.error('Detailed Bedrock Error:', error);
-    
-    // Return the specific error message to the frontend so you can see it
+    console.error('FINAL ERROR:', error);
     return NextResponse.json(
       { error: error.message || 'Failed to analyze CV' }, 
       { status: 500 }
