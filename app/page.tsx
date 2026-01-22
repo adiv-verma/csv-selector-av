@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from 'react';
-import { Upload, Play, Loader2, CheckCircle, XCircle, AlertCircle, FileText, Star, ChevronDown, ChevronUp } from 'lucide-react';
+import { Upload, Play, Loader2, FileText, Star } from 'lucide-react';
 
 // --- TYPES ---
 interface SkillConfig {
@@ -19,7 +19,7 @@ interface AnalysisResult {
   summary: string;
   skills: {
     name: string;
-    weight?: string; // Sometimes the AI might return this
+    weight?: string;
     evidence: string;
     proficiency: number;
     score: number;
@@ -40,11 +40,8 @@ export default function Home() {
   const [processedCount, setProcessedCount] = useState(0);
   const [currentFileProcessing, setCurrentFileProcessing] = useState<string>("");
   const [results, setResults] = useState<AnalysisResult[]>([]);
-  const [logs, setLogs] = useState<string[]>([]); // To show errors if any
+  const [logs, setLogs] = useState<string[]>([]);
   
-  // Toggle for detail view (optional, defaults to open)
-  const [expandedId, setExpandedId] = useState<number | null>(null);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- HANDLERS ---
@@ -224,4 +221,142 @@ export default function Home() {
                 <div className="text-xs font-bold text-green-400 uppercase mt-1">Recommended</div>
               </div>
               <div className="bg-yellow-50 p-5 rounded-xl border border-yellow-100 shadow-sm">
-                <div className="text-3xl
+                <div className="text-3xl font-bold text-yellow-600">{consider}</div>
+                <div className="text-xs font-bold text-yellow-400 uppercase mt-1">Consider</div>
+              </div>
+              <div className="bg-red-50 p-5 rounded-xl border border-red-100 shadow-sm">
+                <div className="text-3xl font-bold text-red-600">{reject}</div>
+                <div className="text-xs font-bold text-red-400 uppercase mt-1">Reject</div>
+              </div>
+            </div>
+
+            {/* TOP TALENT SPOTLIGHT */}
+            {topTalent && (
+              <div className="bg-gray-900 rounded-2xl p-8 text-white shadow-xl relative overflow-hidden">
+                <div className="absolute top-0 right-0 bg-blue-600 w-64 h-64 rounded-full filter blur-3xl opacity-20 -mr-20 -mt-20"></div>
+                <div className="relative z-10 flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Star className="text-yellow-400 fill-current w-5 h-5" />
+                      <h3 className="text-lg font-bold text-yellow-400 uppercase tracking-wide">Top Talent Spotlight</h3>
+                    </div>
+                    <h2 className="text-4xl font-bold mb-2">{topTalent.candidateName}</h2>
+                    <div className="flex items-center gap-4 text-gray-300 text-sm mb-6">
+                      <span className="bg-gray-800 px-3 py-1 rounded-full text-xs font-mono">{topTalent.fileName}</span>
+                      <span>{topTalent.yearsOfExperience}</span>
+                      <span className="text-green-400 font-bold">{topTalent.matchScore} Match Score</span>
+                    </div>
+                    <p className="text-gray-300 max-w-3xl text-lg italic leading-relaxed">"{topTalent.summary}"</p>
+                  </div>
+                  <div className="bg-gray-800 p-6 rounded-xl min-w-[120px] text-center hidden md:block">
+                    <div className="text-5xl font-bold text-green-400 mb-1">{topTalent.matchScore}</div>
+                    <div className="text-xs text-gray-400 uppercase">Score</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* DETAILED CARDS LIST */}
+            <div className="space-y-6">
+              <h3 className="text-xl font-bold text-gray-800 mt-8">Detailed Candidate Analysis</h3>
+              
+              {results.map((result, idx) => (
+                <div key={idx} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
+                  {/* Card Header */}
+                  <div className="p-6 border-b border-gray-100 flex flex-col md:flex-row justify-between md:items-start gap-4">
+                    <div className="flex gap-4">
+                      {/* Score Badge */}
+                      <div className={`w-16 h-16 rounded-xl flex items-center justify-center text-xl font-bold shadow-sm ${
+                        result.matchScore >= 80 ? 'bg-green-100 text-green-700' :
+                        result.matchScore >= 50 ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-blue-100 text-blue-700' 
+                      }`}>
+                        {result.matchScore}
+                      </div>
+                      
+                      {/* Name & File */}
+                      <div>
+                        <h2 className="text-xl font-bold text-gray-900">{result.candidateName || "Unknown Candidate"}</h2>
+                        <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
+                          <span className="font-medium text-gray-700">{result.fileName}</span>
+                          <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+                          <span>{result.yearsOfExperience}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Decision Tag */}
+                    <div className={`px-4 py-2 rounded-lg text-sm font-bold uppercase tracking-wide self-start ${
+                      result.decision === 'RECOMMENDED' ? 'bg-green-100 text-green-800 border border-green-200' :
+                      result.decision === 'REJECT' ? 'bg-red-100 text-red-800 border border-red-200' :
+                      'bg-yellow-100 text-yellow-800 border border-yellow-200'
+                    }`}>
+                      {result.decision}
+                    </div>
+                  </div>
+
+                  {/* Summary Block */}
+                  <div className="px-6 py-4 bg-gray-50 border-b border-gray-100">
+                    <p className="text-gray-600 text-sm italic leading-relaxed">
+                      "{result.summary}"
+                    </p>
+                  </div>
+
+                  {/* Skills Table */}
+                  <div className="p-6">
+                    <div className="grid grid-cols-12 gap-4 mb-2 text-xs font-bold text-gray-400 uppercase tracking-wider">
+                      <div className="col-span-12 md:col-span-3">Skill</div>
+                      <div className="col-span-12 md:col-span-5 hidden md:block">Evidence</div>
+                      <div className="col-span-12 md:col-span-3 hidden md:block">Proficiency</div>
+                      <div className="col-span-12 md:col-span-1 text-right hidden md:block">Score</div>
+                    </div>
+
+                    <div className="space-y-6">
+                      {result.skills.map((skill, sIdx) => (
+                        <div key={sIdx} className="grid grid-cols-12 gap-y-2 md:gap-4 items-start border-b border-gray-50 pb-4 last:border-0 last:pb-0">
+                          
+                          {/* Skill Name */}
+                          <div className="col-span-12 md:col-span-3">
+                            <h4 className="font-semibold text-gray-900 text-sm">{skill.name}</h4>
+                            <span className="text-xs text-gray-400">Weight: {skills.find(s => skill.name.includes(s.name))?.weight || 'N/A'}/5</span>
+                          </div>
+
+                          {/* Evidence */}
+                          <div className="col-span-12 md:col-span-5">
+                            <p className="text-sm text-gray-600 leading-relaxed">
+                              {skill.evidence || "No specific evidence provided."}
+                            </p>
+                          </div>
+
+                          {/* Proficiency Bar */}
+                          <div className="col-span-10 md:col-span-3 flex items-center h-full mt-1 md:mt-0">
+                            <div className="w-full bg-gray-100 rounded-full h-2">
+                              <div 
+                                className={`h-2 rounded-full transition-all duration-500 ${
+                                  skill.score < 40 ? 'bg-red-500' : 
+                                  skill.score < 75 ? 'bg-yellow-500' : 'bg-green-500'
+                                }`}
+                                style={{ width: `${skill.proficiency}%` }}
+                              ></div>
+                            </div>
+                          </div>
+
+                          {/* Numeric Score */}
+                          <div className="col-span-2 md:col-span-1 text-right font-bold text-sm text-gray-900">
+                            {skill.score}/100
+                          </div>
+
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+      </div>
+    </main>
+  );
+}
