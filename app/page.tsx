@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from 'react';
-import { Upload, Play, Loader2, CheckCircle, XCircle, AlertCircle, FileText, Star } from 'lucide-react';
+import { Upload, Play, Loader2, CheckCircle, XCircle, AlertCircle, FileText, Star, ChevronDown, ChevronUp } from 'lucide-react';
 
 // --- TYPES ---
 interface SkillConfig {
@@ -11,7 +11,7 @@ interface SkillConfig {
 }
 
 interface AnalysisResult {
-  fileName: string; // Added to track which file this is
+  fileName: string;
   candidateName: string;
   yearsOfExperience: string;
   matchScore: number;
@@ -19,6 +19,7 @@ interface AnalysisResult {
   summary: string;
   skills: {
     name: string;
+    weight?: string; // Sometimes the AI might return this
     evidence: string;
     proficiency: number;
     score: number;
@@ -27,7 +28,6 @@ interface AnalysisResult {
 
 export default function Home() {
   // --- STATE ---
-  // 1. Configuration State
   const [skills, setSkills] = useState<SkillConfig[]>([
     { id: '1', name: 'Wireless Networks (5G, 4G, LTE)', weight: 5 },
     { id: '2', name: 'Fixed Networks (Fiber)', weight: 3 },
@@ -35,17 +35,19 @@ export default function Home() {
     { id: '4', name: 'Consulting or MBA', weight: 2 },
   ]);
 
-  // 2. Upload State
   const [files, setFiles] = useState<File[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processedCount, setProcessedCount] = useState(0);
-
-  // 3. Results State
+  const [currentFileProcessing, setCurrentFileProcessing] = useState<string>("");
   const [results, setResults] = useState<AnalysisResult[]>([]);
+  const [logs, setLogs] = useState<string[]>([]); // To show errors if any
+  
+  // Toggle for detail view (optional, defaults to open)
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- HANDLERS ---
-
   const handleWeightChange = (id: string, newWeight: number) => {
     setSkills(skills.map(s => s.id === id ? { ...s, weight: newWeight } : s));
   };
@@ -57,7 +59,8 @@ export default function Home() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       setFiles(Array.from(e.target.files));
-      setResults([]); // Reset results on new upload
+      setResults([]); 
+      setLogs([]);
       setProcessedCount(0);
     }
   };
@@ -68,15 +71,15 @@ export default function Home() {
     setIsProcessing(true);
     setProcessedCount(0);
     setResults([]);
+    setLogs([]);
     
-    const newResults: AnalysisResult[] = [];
-
-    // Loop through each file sequentially
+    // Process files one by one
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
+      setCurrentFileProcessing(file.name);
+      
       const formData = new FormData();
       formData.append('file', file);
-      // Send the current skill configuration to the AI
       formData.append('skills', JSON.stringify(skills));
 
       try {
@@ -85,57 +88,52 @@ export default function Home() {
         
         if (res.ok) {
           const resultWithFile = { ...data, fileName: file.name };
-          newResults.push(resultWithFile);
-          setResults(prev => [...prev, resultWithFile]); // Update UI real-time
+          setResults(prev => [...prev, resultWithFile]);
+        } else {
+          setLogs(prev => [...prev, `Error with ${file.name}: ${data.error}`]);
         }
-      } catch (err) {
-        console.error("Error processing file:", file.name, err);
+      } catch (err: any) {
+        setLogs(prev => [...prev, `Failed to process ${file.name}: ${err.message}`]);
       }
       
       setProcessedCount(prev => prev + 1);
     }
 
     setIsProcessing(false);
+    setCurrentFileProcessing("");
   };
 
-  // --- DERIVED STATS ---
+  // --- STATS CALCULATION ---
   const recommended = results.filter(r => r.decision === 'RECOMMENDED').length;
   const consider = results.filter(r => r.decision === 'CONSIDER').length;
   const reject = results.filter(r => r.decision === 'REJECT').length;
   
-  // Find top talent
   const topTalent = results.length > 0 
     ? results.reduce((prev, current) => (prev.matchScore > current.matchScore) ? prev : current)
     : null;
 
   return (
-    <main className="min-h-screen bg-gray-50 text-gray-900 pb-20">
+    <main className="min-h-screen bg-gray-50 text-gray-900 pb-20 font-sans">
       
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center sticky top-0 z-10">
+      <header className="bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center sticky top-0 z-20 shadow-sm">
         <div className="flex items-center gap-2">
-          <div className="bg-purple-600 p-2 rounded-lg">
+          <div className="bg-blue-600 p-2 rounded-lg">
             <FileText className="text-white w-5 h-5" />
           </div>
           <h1 className="text-xl font-bold text-gray-900">CV Screening Agent</h1>
         </div>
-        <div className="flex items-center gap-4">
-          <select className="bg-gray-100 border-none text-sm font-medium rounded-md px-3 py-2">
-            <option>Claude 3 Haiku (Fast)</option>
-            <option>Claude 3 Sonnet (Balanced)</option>
-          </select>
-        </div>
+        <div className="text-sm text-gray-500">Powered by AWS Bedrock</div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+      <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
         
-        {/* SECTION 1: Define Skills */}
+        {/* 1. CONFIGURATION */}
         <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider">1. Define Skills & Importance</h2>
             <span className="text-xs text-gray-400">Scale: 1 (Optional) to 5 (Critical)</span>
           </div>
-          
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {skills.map((skill) => (
               <div key={skill.id} className="bg-gray-50 rounded-lg p-4 border border-gray-100">
@@ -146,11 +144,8 @@ export default function Home() {
                   className="bg-transparent border-none font-semibold text-gray-800 w-full focus:ring-0 p-0 mb-3"
                 />
                 <div className="flex items-center gap-4">
-                  <span className="text-xs font-medium text-gray-500 w-12">Weight</span>
                   <input 
-                    type="range" 
-                    min="1" 
-                    max="5" 
+                    type="range" min="1" max="5" 
                     value={skill.weight}
                     onChange={(e) => handleWeightChange(skill.id, parseInt(e.target.value))}
                     className="flex-grow h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
@@ -162,17 +157,12 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECTION 2: Upload */}
+        {/* 2. UPLOAD */}
         <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center border-dashed border-2 border-gray-300 hover:border-blue-400 transition-colors">
           <input 
-            type="file" 
-            multiple 
-            accept=".pdf" 
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            className="hidden" 
+            type="file" multiple accept=".pdf" 
+            ref={fileInputRef} onChange={handleFileChange} className="hidden" 
           />
-          
           <div className="cursor-pointer" onClick={() => fileInputRef.current?.click()}>
             <div className="mx-auto bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center mb-4">
               <Upload className="text-blue-600 w-8 h-8" />
@@ -180,94 +170,58 @@ export default function Home() {
             <h3 className="text-lg font-medium text-gray-900">
               {files.length > 0 ? `${files.length} Files Selected` : "Upload CV Folder"}
             </h3>
-            <p className="text-gray-500 mt-1">Drag and drop files here or click to browse</p>
+            <p className="text-gray-500 mt-1">Drag and drop PDF files here</p>
           </div>
         </section>
 
-        {/* Action Bar */}
+        {/* STATUS BAR */}
         <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-200">
           <div className="flex flex-col">
             <span className="text-sm font-medium text-gray-500">Status</span>
             <span className="text-lg font-bold text-gray-900">
-              {isProcessing ? "Processing..." : results.length > 0 ? "Completed" : "Waiting for Input"}
+              {isProcessing 
+                ? `Processing: ${currentFileProcessing}` 
+                : results.length > 0 
+                  ? "Analysis Completed" 
+                  : "Ready to Start"}
             </span>
           </div>
-          
-          <div className="flex items-center gap-4">
-             {isProcessing && (
-               <div className="flex items-center gap-2 text-sm text-gray-500 mr-4">
-                 <Loader2 className="animate-spin w-4 h-4" />
-                 Processing {processedCount}/{files.length}
-               </div>
-             )}
-            <button 
-              onClick={startAnalysis}
-              disabled={isProcessing || files.length === 0}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-semibold flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-blue-200"
-            >
-              {isProcessing ? <Loader2 className="animate-spin" /> : <Play className="fill-current w-4 h-4" />}
-              Start Analysis
-            </button>
-          </div>
+          <button 
+            onClick={startAnalysis}
+            disabled={isProcessing || files.length === 0}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-semibold flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-200"
+          >
+            {isProcessing ? <Loader2 className="animate-spin" /> : <Play className="fill-current w-4 h-4" />}
+            Start Analysis
+          </button>
         </div>
 
-        {/* SECTION 3: Dashboard Stats */}
+        {/* ERROR LOGS */}
+        {logs.length > 0 && (
+          <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+            <h4 className="text-red-800 font-bold mb-2">Processing Errors:</h4>
+            <ul className="list-disc list-inside text-red-600 text-sm">
+              {logs.map((log, i) => <li key={i}>{log}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {/* ---------------- RESULTS SECTION ---------------- */}
         {results.length > 0 && (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-              <div className="text-3xl font-bold text-gray-900">{files.length}</div>
-              <div className="text-xs font-bold text-gray-400 uppercase mt-1">Total CVs</div>
-            </div>
-            <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 shadow-sm">
-              <div className="text-3xl font-bold text-blue-600">{results.length}</div>
-              <div className="text-xs font-bold text-blue-400 uppercase mt-1">Processed</div>
-            </div>
-            <div className="bg-green-50 p-6 rounded-xl border border-green-100 shadow-sm">
-              <div className="text-3xl font-bold text-green-600">{recommended}</div>
-              <div className="text-xs font-bold text-green-400 uppercase mt-1">Recommended</div>
-            </div>
-            <div className="bg-yellow-50 p-6 rounded-xl border border-yellow-100 shadow-sm">
-              <div className="text-3xl font-bold text-yellow-600">{consider}</div>
-              <div className="text-xs font-bold text-yellow-400 uppercase mt-1">Consider</div>
-            </div>
-            <div className="bg-red-50 p-6 rounded-xl border border-red-100 shadow-sm">
-              <div className="text-3xl font-bold text-red-600">{reject}</div>
-              <div className="text-xs font-bold text-red-400 uppercase mt-1">Reject</div>
-            </div>
-          </div>
-        )}
-
-        {/* SECTION 4: Top Talent Spotlight */}
-        {topTalent && (
-          <div className="bg-gray-900 rounded-2xl p-8 text-white shadow-xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 bg-blue-600 w-64 h-64 rounded-full filter blur-3xl opacity-20 -mr-20 -mt-20"></div>
-            
-            <div className="relative z-10 flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <Star className="text-yellow-400 fill-current w-5 h-5" />
-                  <h3 className="text-lg font-bold text-yellow-400 uppercase tracking-wide">Top Talent Spotlight</h3>
-                </div>
-                <h2 className="text-4xl font-bold mb-2">{topTalent.candidateName}</h2>
-                <div className="flex items-center gap-4 text-gray-300 text-sm mb-6">
-                   <span className="bg-gray-800 px-3 py-1 rounded-full">{topTalent.fileName}</span>
-                   <span>{topTalent.yearsOfExperience} Experience</span>
-                </div>
-                
-                <p className="text-gray-300 max-w-2xl text-lg italic leading-relaxed">
-                  "{topTalent.summary}"
-                </p>
+          <>
+            {/* STATS CARDS */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+                <div className="text-3xl font-bold text-gray-900">{files.length}</div>
+                <div className="text-xs font-bold text-gray-400 uppercase mt-1">Total</div>
               </div>
-
-              <div className="bg-gray-800 p-6 rounded-xl min-w-[150px] text-center">
-                 <div className="text-5xl font-bold text-green-400 mb-1">{topTalent.matchScore}</div>
-                 <div className="text-sm text-gray-400">Match Score</div>
+              <div className="bg-blue-50 p-5 rounded-xl border border-blue-100 shadow-sm">
+                <div className="text-3xl font-bold text-blue-600">{results.length}</div>
+                <div className="text-xs font-bold text-blue-400 uppercase mt-1">Processed</div>
               </div>
-            </div>
-          </div>
-        )}
-
-      </div>
-    </main>
-  );
-}
+              <div className="bg-green-50 p-5 rounded-xl border border-green-100 shadow-sm">
+                <div className="text-3xl font-bold text-green-600">{recommended}</div>
+                <div className="text-xs font-bold text-green-400 uppercase mt-1">Recommended</div>
+              </div>
+              <div className="bg-yellow-50 p-5 rounded-xl border border-yellow-100 shadow-sm">
+                <div className="text-3xl
