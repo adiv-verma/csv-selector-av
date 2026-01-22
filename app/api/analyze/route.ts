@@ -2,9 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import pdf from 'pdf-parse';
 
-// 1. Initialize Bedrock Client 
-// Hardcoded to "us-east-1" (N. Virginia) to match where you likely enabled the model.
-const bedrock = new BedrockRuntimeClient({ region: "us-east-1" });
+// --- CHANGE STARTS HERE ---
+const bedrock = new BedrockRuntimeClient({ 
+  region: "us-east-1", 
+  credentials: {
+    // We use the "!" to tell TypeScript we are sure these variables exist
+    accessKeyId: process.env.AMPLIFY_BEDROCK_ID!, 
+    secretAccessKey: process.env.AMPLIFY_BEDROCK_SECRET!
+  }
+});
+
 
 export async function POST(req: NextRequest) {
   try {
