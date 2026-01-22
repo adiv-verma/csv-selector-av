@@ -11,17 +11,15 @@ const bedrock = new BedrockRuntimeClient({
   credentials: accessKeyId && secretAccessKey ? { accessKeyId, secretAccessKey } : undefined
 });
 
-// --- HELPER TO CLEAN JSON ---
+// Helper to clean JSON
 function extractJson(text: string) {
   try {
-    // 1. Try to find the first '{' and the last '}'
     const startIndex = text.indexOf('{');
     const endIndex = text.lastIndexOf('}');
-    
     if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
       return text.substring(startIndex, endIndex + 1);
     }
-    return text; // Return original if no brackets found (will likely fail parsing)
+    return text;
   } catch (e) {
     return text;
   }
@@ -37,48 +35,51 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
     }
 
-    // Parse PDF
+    // 1. Parse PDF
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     const data = await pdf(buffer);
     const pdfText = data.text;
 
-    // Parse Skills
+    // 2. Parse User Defined Skills
     let skillsPrompt = "";
+    let userSkills: any[] = [];
+    
     if (skillsJson) {
-      const skills = JSON.parse(skillsJson);
-      skillsPrompt = skills.map((s: any) => `- ${s.name} (Importance: ${s.weight}/5)`).join('\n');
+      userSkills = JSON.parse(skillsJson);
+      skillsPrompt = userSkills.map((s: any) => `- ${s.name} (Importance Weight: ${s.weight})`).join('\n');
     }
 
-    // Use Claude 3 Haiku
+    // 3. Prompt for Bedrock
     const modelId = "anthropic.claude-3-haiku-20240307-v1:0";
     
-    const prompt = `You are a bulk CV screening AI. 
-    Analyze the resume below against these required skills:
+    const prompt = `You are a strict data extraction AI. 
+    Analyze the resume below against these SPECIFIC required skills:
     ${skillsPrompt}
 
-    Return ONLY raw JSON. No markdown formatting, no code blocks, no intro text.
-    Ensure all numbers are integers (e.g. 85, not 85.5).
-    
+    Instructions:
+    1. For each skill, extract "evidence" and give a score (0-100).
+    2. If evidence is weak or missing, the score MUST be low (0-30).
+    3. Do NOT calculate the final matchScore. I will do that.
+    4. Return ONLY JSON.
+
+    Resume Text:
+    ${pdfText}
+
     JSON Format:
     {
       "candidateName": "Full Name",
       "yearsOfExperience": "Total Years",
-      "matchScore": 0,
-      "decision": "RECOMMENDED",
       "summary": "1 sentence summary.",
       "skills": [
         {
-          "name": "Skill Name",
+          "name": "Exact Skill Name from list",
           "evidence": "Evidence found",
           "proficiency": 0,
           "score": 0
         }
       ]
-    }
-
-    RESUME TEXT:
-    ${pdfText}`;
+    }`;
 
     const payload = {
       anthropic_version: "bedrock-2023-05-31",
@@ -92,27 +93,66 @@ export async function POST(req: NextRequest) {
       modelId: modelId,
     });
 
+    // 4. Get AI Response
     const apiResponse = await bedrock.send(command);
     const decodedResponseBody = new TextDecoder().decode(apiResponse.body);
     const responseBody = JSON.parse(decodedResponseBody);
-    
     let resultText = responseBody.content[0].text;
     
-    // --- ROBUST CLEANING ---
-    // 1. Remove markdown code blocks
+    // Clean and Parse JSON
     resultText = resultText.replace(/```json/g, '').replace(/```/g, '');
-    
-    // 2. Extract only the JSON part
     const cleanJsonString = extractJson(resultText);
-
-    // 3. Parse
     const jsonAnalysis = JSON.parse(cleanJsonString);
 
-    return NextResponse.json(jsonAnalysis);
+    // --- 5. THE FIX: MATHEMATICAL SCORING ---
+    // We calculate the weighted average ourselves to ensure the total matches the parts.
+    
+    let totalWeightedScore = 0;
+    let totalMaxWeight = 0;
+
+    // Map the AI results back to the user's weights
+    // (AI might mess up the name slightly, so we try to match loosely)
+    const processedSkills = jsonAnalysis.skills.map((aiSkill: any) => {
+        // Find the weight user assigned to this skill
+        const matchedUserSkill = userSkills.find((us: any) => 
+            aiSkill.name.toLowerCase().includes(us.name.toLowerCase()) || 
+            us.name.toLowerCase().includes(aiSkill.name.toLowerCase())
+        );
+
+        const weight = matchedUserSkill ? matchedUserSkill.weight : 1; // Default to 1 if not found
+        const score = aiSkill.score || 0;
+
+        totalWeightedScore += (score * weight);
+        totalMaxWeight += (100 * weight);
+
+        return {
+            ...aiSkill,
+            weight: weight // Ensure weight is sent back to frontend
+        };
+    });
+
+    // Calculate final percentage
+    const calculatedMatchScore = totalMaxWeight > 0 
+        ? Math.round((totalWeightedScore / totalMaxWeight) * 100) 
+        : 0;
+
+    // Determine Decision based on strict math
+    let decision = "REJECT";
+    if (calculatedMatchScore >= 80) decision = "RECOMMENDED";
+    else if (calculatedMatchScore >= 50) decision = "CONSIDER";
+
+    // Overwrite the AI's hallucinations with our Math
+    const finalResponse = {
+        ...jsonAnalysis,
+        skills: processedSkills,
+        matchScore: calculatedMatchScore,
+        decision: decision
+    };
+
+    return NextResponse.json(finalResponse);
 
   } catch (error: any) {
     console.error('Analysis Error:', error);
-    // Return the specific error so we can see it in the frontend logs
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
